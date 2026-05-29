@@ -1,0 +1,13 @@
+# CLAUDE.md - QuantConnect Developer Agent Configuration
+
+This file establishes the rules and coding conventions for developing QuantConnect LEAN Python strategies in this directory.
+
+## Core Directives
+- **API Verification:** Before writing any QuantConnect Python code, you MUST use your local file-reading tools to inspect the markdown documentation inside `@docs/writing-algorithms/`. Do not guess API syntax.
+- **Template Mirroring:** When designing multi-leg options, data consolidation, or futures hedging, mirror the exact import patterns and class structures defined in the template files inside `@docs/templates/`.
+- **Completeness:** Write fully functional, complete scripts. Never output partial code, snippets, or placeholders like `TODO` or `...`.
+- **Margin Modeling:** When placing options spreads, always use QuantConnect's Combo Order system as demonstrated in the templates to ensure correct margin requirements.
+
+## Useful Local Commands
+- **Backtest Local:** `lean backtest .` (if running locally via LEAN CLI)
+- **Deploy Cloud:** `lean cloud push` (to sync code to your QuantConnect Web account)
