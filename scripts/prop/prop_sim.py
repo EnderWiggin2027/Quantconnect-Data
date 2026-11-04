@@ -2,6 +2,7 @@
 Account kinds: l150 = Lucid 150K Flex | pro = Lucid 25K Pro (loss limit off) | fn150 = FundedNext 150K Flex | fnpro = FundedNext 25K Pro
 mff150 = MyFundedFutures 150K | mff = MyFundedFutures 25K | ph150 = Phidias 150K. Older/rejected kinds kept for reference: flex, fn, tfy, tfs, tfd.
 Each account dict: kind, Ce (evaluation day $), Cf (funded day $), optional Cf2 (funded day $ after first payout).
+Optional We/Wf/Wf2 (worst intraday $ of the day, <= 0): if given, the account fails when intraday equity touches the floor.
 sim(...)[day] = (net cash change, fees spent, payouts received, evaluations bought). See docs/prop_firm_strategy.pdf."""
 import numpy as np, pandas as pd, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +40,23 @@ FEE['mff150'] = 334.0
 FEE['ph150'] = 190.0
 PH = dict(keep=1000.0, cap=2750.0, cons=0.3, qd=10, split=0.8)   # Phidias 150K funded: buffer left after payout, cap/cycle, consistency, qualifying days, split
 TFY = dict(ke=0.3, kf=0.3, fail=False)
+def floorf(k, hh, fu, nn):
+    """Drawdown floor (relative to start) for kind k given high-water mark hh, funded mask fu, payouts so far nn."""
+    if k == 'mff150':
+        floor = np.where(fu & (nn > 0), 100.0, hh - 4500)
+    elif k == 'fn150':
+        floor = np.where(fu & (nn > 0), 100.0, np.where(hh >= 4100, 100.0, hh - 4000))
+    elif k == 'l150':
+        floor = np.where(fu & (nn > 0), 100.0, np.where(hh >= 4600, 100.0, hh - 4500))
+    elif k == 'ph150':
+        floor = np.where(fu, np.minimum(hh - 4500, 0.0), hh - 4500)
+    elif k in ('pro', 'fnpro', 'tfy', 'tfs', 'tfd', 'mff'):
+        floor = np.where(fu, np.minimum(hh - 1000, 100.0), hh - 1000)
+    elif k == 'flex':
+        floor = np.where(fu & (nn > 0), 100.0, np.minimum(hh - 2000, 0.0))
+    else:
+        floor = np.where(fu, np.minimum(hh - 1500, 100.0), hh - 1500)
+    return floor
 def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252), post=0.5):
     """trig: dict kind->cash level at which that kind's accounts start (default 0)."""
     trig = trig or {}; K = len(accts); L = len(accts[0]['Ce'])
@@ -55,21 +73,13 @@ def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252
             cf_now = np.where(n[j] > 0, a['Cf2'][ix], a['Cf'][ix]) if 'Cf2' in a else a['Cf'][ix] * np.where(n[j] > 0, a.get('post', post), 1.0)
             c = np.where(ev, a['Ce'][ix], np.where(fu, cf_now, 0.0))
             bj = np.where(ev | fu, b[j] + c, b[j]); hj = np.where(ev | fu, np.maximum(h[j], bj), h[j])
-            if k == 'mff150':
-                floor = np.where(fu & (n[j] > 0), 100.0, hj - 4500)
-            elif k == 'fn150':
-                floor = np.where(fu & (n[j] > 0), 100.0, np.where(hj >= 4100, 100.0, hj - 4000))
-            elif k == 'l150':
-                floor = np.where(fu & (n[j] > 0), 100.0, np.where(hj >= 4600, 100.0, hj - 4500))
-            elif k == 'ph150':
-                floor = np.where(fu, np.minimum(hj - 4500, 0.0), hj - 4500)
-            elif k in ('pro', 'fnpro', 'tfy', 'tfs', 'tfd', 'mff'):
-                floor = np.where(fu, np.minimum(hj - 1000, 100.0), hj - 1000)
-            elif k == 'flex':
-                floor = np.where(fu & (n[j] > 0), 100.0, np.minimum(hj - 2000, 0.0))
-            else:
-                floor = np.where(fu, np.minimum(hj - 1500, 100.0), hj - 1500)
-            bust = (ev | fu) & (bj <= floor)
+            if 'We' in a:   # intraday breach: worst intraday equity vs the floor set at yesterday's close
+                w_now = np.where(n[j] > 0, a['Wf2'][ix], a['Wf'][ix]) if 'Wf2' in a else a['Wf'][ix]
+                w = np.where(ev, a['We'][ix], np.where(fu, w_now, 0.0)); fp = floorf(k, h[j], fu, n[j])
+                ib = (ev | fu) & (b[j] + np.minimum(w, c) <= fp); bj = np.where(ib, fp, bj); hj = np.where(ev | fu, np.maximum(h[j], bj), h[j]); c = np.where(ib, fp - b[j], c)
+            else: ib = False
+            floor = floorf(k, hj, fu, n[j])
+            bust = (ev | fu) & ((bj <= floor) | ib)
             if k == 'tfy' and TFY['fail']: bust |= ev & a['Eh'][ix]
             bdj = np.where(~bust & (ev | fu), np.maximum(bd[j], c), bd[j])
             if k == 'mff150': evd = q[j] + ev; passed = ev & ~bust & (bj >= np.maximum(9000, bdj / 0.5)) & (evd >= 2)
