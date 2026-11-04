@@ -1,6 +1,6 @@
 """Multi-firm prop-account Monte Carlo (shared bankroll, day-level bootstrap). Tracks cash, fees spent, payouts received.
 Account kinds: l150 = Lucid 150K Flex | pro = Lucid 25K Pro (loss limit off) | fn150 = FundedNext 150K Flex | fnpro = FundedNext 25K Pro
-mff150 = MyFundedFutures 150K | mff = MyFundedFutures 25K. Older/rejected kinds kept for reference: flex, fn, tfy, tfs, tfd.
+mff150 = MyFundedFutures 150K | mff = MyFundedFutures 25K | ph150 = Phidias 150K. Older/rejected kinds kept for reference: flex, fn, tfy, tfs, tfd.
 Each account dict: kind, Ce (evaluation day $), Cf (funded day $), optional Cf2 (funded day $ after first payout).
 sim(...)[day] = (net cash change, fees spent, payouts received, evaluations bought). See docs/prop_firm_strategy.pdf."""
 import numpy as np, pandas as pd, sys, os
@@ -36,6 +36,8 @@ FEE['mff'] = 98.0
 FEE['l150'] = 265.3
 FEE['fn150'] = 259.99
 FEE['mff150'] = 334.0
+FEE['ph150'] = 190.0
+PH = dict(keep=1000.0, cap=2750.0, cons=0.3, qd=10, split=0.8)   # Phidias 150K funded: buffer left after payout, cap/cycle, consistency, qualifying days, split
 TFY = dict(ke=0.3, kf=0.3, fail=False)
 def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252), post=0.5):
     """trig: dict kind->cash level at which that kind's accounts start (default 0)."""
@@ -59,6 +61,8 @@ def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252
                 floor = np.where(fu & (n[j] > 0), 100.0, np.where(hj >= 4100, 100.0, hj - 4000))
             elif k == 'l150':
                 floor = np.where(fu & (n[j] > 0), 100.0, np.where(hj >= 4600, 100.0, hj - 4500))
+            elif k == 'ph150':
+                floor = np.where(fu, np.minimum(hj - 4500, 0.0), hj - 4500)
             elif k in ('pro', 'fnpro', 'tfy', 'tfs', 'tfd', 'mff'):
                 floor = np.where(fu, np.minimum(hj - 1000, 100.0), hj - 1000)
             elif k == 'flex':
@@ -72,6 +76,7 @@ def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252
             elif k == 'fn150': evd = q[j] + ev; passed = ev & ~bust & (bj >= np.maximum(8000, bdj / 0.4)) & (evd >= 3)
             elif k == 'l150': passed = ev & ~bust & (bj >= np.maximum(9000, bdj / 0.4))
             elif k == 'pro':  passed = ev & ~bust & (bj >= 1250)
+            elif k == 'ph150': passed = ev & ~bust & (bj >= 9000)
             elif k in ('fnpro', 'tfy'): passed = ev & ~bust & (bj >= 1500)
             elif k == 'mff': evd = q[j] + ev; passed = ev & ~bust & (bj >= np.maximum(1500, bdj / 0.3)) & (evd >= 4)
             elif k in ('tfs', 'tfd'): passed = ev & ~bust & (bj >= np.maximum(1500, bdj / 0.4))
@@ -85,6 +90,9 @@ def sim(accts, rng, trig=None, P=10000, D=252, bank=12000.0, snaps=(42, 126, 252
                 qj = np.where(ev, evd, q[j] + (fa & (c >= 250))); amt = np.minimum(0.5 * bj, 4000.0); ok = fa & (qj >= 5) & (cyc >= 500) & (amt > 0); split = 0.95
             elif k == 'l150':
                 qj = q[j] + (fa & (c >= 250)); amt = np.minimum(0.5 * bj, 3000.0); ok = fa & (qj >= 5) & (cyc > 0) & (amt >= 500); split = 0.9
+            elif k == 'ph150':
+                qj = q[j] + fa; amt = np.minimum(PH['cap'], bj - PH['keep'])
+                ok = fa & (qj >= PH['qd']) & (bdj <= PH['cons'] * cyc) & (amt >= 500); split = PH['split']
             elif k == 'mff':
                 qj = np.where(ev, evd, qj)
                 amt = np.minimum(bj - 1100, MFF['cap']); ok = fa & (cyc >= 250) & (amt >= 500); split = 0.9
