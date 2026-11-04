@@ -28,221 +28,264 @@ def table(rows, widths, head=1, hl=None):
     t.setStyle(TableStyle(st)); return t
 def footer(c, d):
     c.saveState(); c.setFont('Helvetica', 7.5); c.setFillColor(colors.grey)
-    c.drawString(0.7 * inch, 0.45 * inch, 'Prop-firm loop strategy - research notes (model results, not a forecast)')
+    c.drawString(0.7 * inch, 0.45 * inch, 'Prop-firm strategy - research notes (model results, not a forecast)')
     c.drawRightString(7.8 * inch, 0.45 * inch, f'page {d.page}'); c.restoreState()
 
+
 S = []
-# ---------------------------------------------------------------- title / summary
-S += [p('Prop-Firm "Loop" Strategy: Rules, Method, Results and Replication Guide', ParagraphStyle('T', parent=H1, fontSize=19, leading=23)),
-      p('Research notes compiled November 2026. Repository: <b>EnderWiggin2027/Quantconnect-Data</b>, branch <b>claude/festive-dirac-jgT5l</b>. '
-        'Everything here is a <b>simulation</b> of futures prop-firm accounts; numbers are model outputs, not guarantees.'),
+# ================================================================ 1. title / bottom line
+S += [p('Prop-Firm Strategy: Playbook, Results, Rules and Replication Guide', ParagraphStyle('T', parent=H1, fontSize=19, leading=23)),
+      p('Research notes, updated November 2026. Repository: <b>EnderWiggin2027/Quantconnect-Data</b>, branch <b>claude/festive-dirac-jgT5l</b>. '
+        'Everything here is a <b>simulation</b> of futures prop-firm accounts on real ES data (2022-2026). The numbers are model outputs, not guarantees.'),
       p('1. Bottom line', H1),
       *bullets([
-        'The trading strategy (an intraday ES "momentum loop") has <b>no edge of its own</b>: on real ES 2022-2026 its gross result is about 0 points per trade, '
-        'and a normal-account QuantConnect backtest lost money after costs. <b>All modeled profit comes from the prop-firm payoff structure</b>: '
-        'losses are capped at the evaluation fee, while payouts are real cash.',
-        'The strategy is shaped for that structure: many small winning days, occasional larger losing days, fast passes, and payouts taken before accounts bust.',
-        '<b>Best accounts found</b> (all 25K, end-of-day drawdown, no daily loss limit): Lucid 25K Pro (loss limit OFF), FundedNext 25K Pro, MyFundedFutures 25K.',
-        '<b>Recommended plan at ~1 tick slippage</b> (real ES, $12,000 start): 5 x Lucid 25K Pro + 5 x FundedNext 25K Pro from day 1, add 5 x MyFundedFutures 25K '
-        'when cash reaches $30,000. Median result +$16.8k at 2 months (6.3% chance of being down), +$78k at 6 months, +$176k at 12 months.',
-        '<b>At 2-3 ticks slippage</b>: start with Lucid 25K Pro only, add FundedNext 25K Pro and MFF at $30,000 cash. Median +$6.9k / +$29k / +$94k at 2 / 6 / 12 months.',
-        'Spreading accounts across <b>uncorrelated markets</b> (crude, gold, copper, nat gas, ES...) sharply cuts early risk in synthetic tests; this still needs real multi-market data.',
-        'Biggest real-world unknowns: <b>your actual slippage</b>, the exact firm rules marked "assumed" below, and whether firms change their rules.'])]
-S += [p('2. Core idea (why this can make money with a zero-edge strategy)', H1),
-      p('A prop evaluation is a <b>convex payoff</b>: if you fail you lose only the fee (here $85-$100); if you pass, the funded account can pay out thousands. '
-        'With a random-walk strategy the chance of passing depends mostly on the <b>shape</b> of the daily P&amp;L (win size vs loss size vs drawdown vs target), '
-        'not on prediction skill. In tests, a <b>random-direction</b> version of the loop passed evaluations as often as the momentum version; '
-        'the momentum signal mattered only in the funded phase (it roughly doubled payouts). The model treats firms as a repeated business: '
-        'buy evaluations, pass some, extract payouts before funded accounts bust, recycle the slot.')]
-# ---------------------------------------------------------------- strategy rules
-S += [PageBreak(), p('3. The strategy - exact mechanical rules', H1),
-      p('<b>Instrument:</b> ES / MES futures (1 ES point = $50 per mini, $5 per micro). Regular session 09:30-16:00 ET. All times below are 1-minute bar <b>end</b> times, ET.'),
-      p('3.1 Daily direction (shared by every account - no hedging)', H2),
-      *bullets(['At 10:00 ET compare the price at 10:00 (close of the 10:00 bar) with the 09:30 opening price (open of the first bar).',
-                'Above the open: every account may only go <b>long</b> today. Below: every account may only go <b>short</b>. Equal: no trading today.',
-                'Because all accounts trade the same direction, no account is ever opposite another (firms prohibit hedging across accounts).']),
-      p('3.2 The loop (per account)', H2),
-      *bullets(['From the account\'s start time, enter at market (bar close) in the day\'s direction with a stop S points away and a target T points away.',
-                'When the trade exits (stop or target), re-enter on the next bar in the same direction with the same S and T.',
-                'Stop for the day when the day\'s closed result reaches <b>+cap points</b> (per contract, gross) or after <b>8 trades</b>.',
-                'No new entries after 15:30 ET or within 30 minutes of an early close. Flatten everything at 15:59 (or 2 minutes before an early close).',
-                'Simulation fill rules: entry at the signal bar close; exits checked from the next bar; if a bar touches both stop and target, the stop is assumed hit first; '
-                'if a bar opens beyond the stop or target, the fill is at the bar open.']),
-      p('3.3 Presets ("Portfolio B" slots)', H2),
-      table([['Slot', 'Evaluation preset: start / stop / target / daily cap', 'Funded preset: start / stop / target / daily cap'],
-             ['1', '10:00 / 8 / 8 / +6 pts', '10:00 / 12 / 8 / +6 pts'],
-             ['2', '11:00 / 8 / 8 / +6 pts', '11:00 / 12 / 8 / +6 pts'],
-             ['3', '10:00 / 12 / 12 / +10 pts', '10:00 / 8 / 8 / +6 pts'],
-             ['4', '11:00 / 12 / 12 / +6 pts', '10:00 / 12 / 12 / +6 pts'],
-             ['5', '13:00 / 8 / 8 / +6 pts', '10:00 / 8 / 20 / +6 pts']], [0.5, 3.1, 3.1]),
-      p('Each firm runs 5 accounts = slots 1-5. An account uses its slot\'s evaluation preset until it passes, then its slot\'s funded preset.', SM),
-      p('3.4 Position sizes', H2),
-      table([['Account type', 'Evaluation size (minis) slots 1-5', 'Funded size (minis) slots 1-5', 'After first payout'],
-             ['25K accounts, 2-mini cap (Lucid 25K Pro, FundedNext 25K Pro, MFF 25K)', '2 / 2 / 1.5 / 1.5 / 2  (= 20/20/15/15/20 micros)', '1.8 / 1.8 / 2 / 1.8 / 2', 'Halve the funded size'],
-             ['Lucid 50K Flex (comparison only)', '3.5 / 3.5 / 2.5 / 2.5 / 3.5', '3 / 3 / 4 / 3 / 4', 'Halve'],
-             ['FundedNext 50K Flex (alternative)', '3 / 3 / 2.1 / 2.1 / 3', '2.6 / 2.6 / 3 / 2.6 / 3', 'Halve']], [2.5, 1.7, 1.4, 1.1]),
-      p('25K sizes are Portfolio B x 0.6 (the most the 2-mini cap allows); they were chosen on synthetic data and validated on real ES. '
-        '<b>Halving size after an account\'s first payout</b> was the one optimisation that improved both profit (+10-13%) and risk.', SM),
-      p('3.5 Account management', H2),
-      *bullets(['Keep 5 accounts per firm running. When an evaluation busts, buy a new one the next day; when a funded account busts or closes, buy a new evaluation.',
-                'Request every payout as soon as the firm\'s rules allow. Payouts go back into the shared bankroll and pay for new evaluations.',
-                'Add the next firm only when total cash (start + payouts - fees) reaches the trigger (e.g. $30,000).',
-                'Never let accounts hold opposite positions; skip tier-1 news on MFF funded accounts (rule).'])]
-# ---------------------------------------------------------------- firm rules
-S += [PageBreak(), p('4. Prop-firm rules as modeled', H1),
-      p('"(A)" marks an <b>assumption</b> where the screenshots did not state the rule. Re-check every rule against the firm\'s current terms before trading; '
-        'if a rule differs, change it in scripts/prop/prop_sim.py and rerun.', NOTE),
+        'The trading rules have <b>no edge of their own</b>. On real ES the gross result is about 0 points per trade, and a normal-account backtest lost money. '
+        '<b>All the modeled profit comes from the prop-firm payoff</b>: a failed evaluation costs only its fee, while payouts are real cash.',
+        '<b>The final plan uses three firms and two account types.</b> The 150K accounts use a "one-trade" playbook that is only valid where the drawdown is checked at the '
+        '<b>end of the day</b> (not intraday). The 25K accounts use the earlier "loop" playbook.',
+        '<b>Day 1:</b> Lucid 3 x 150K Flex + 2 x 25K Pro, and FundedNext 2 x 25K Pro. <b>When cash reaches $30,000:</b> FundedNext 3 x 150K Flex, '
+        'and MyFundedFutures 3 x 150K + 2 x 25K. That is 15 accounts at full build-out, the maximum of 5 per firm.',
+        '<b>Median result at about 1 tick of slippage</b>, starting with $12,000, after each firm\'s real commissions: '
+        '<b>+$40k at 2 months</b> (2.0% chance of being down), <b>+$303k at 6 months</b>, <b>+$697k at 12 months</b>. '
+        'At 3 ticks: +$29k / +$241k / +$564k.',
+        'This is a high-volume business: about 500 evaluations a year, about $94k of fees spent against about $790k of payouts received (medians, 1 tick).',
+        'The biggest unknowns are <b>firm rules and enforcement</b> (a rule change, payout denial, or ban removes the edge), <b>your real slippage</b>, and '
+        '<b>end-of-day versus intraday breach</b>. If a 150K account liquidates intraday, the one-trade playbook roughly breaks even and must not be used.'])]
+S += [p('<b>Read before trading.</b> Confirm every rule in section 6 with each firm\'s current terms. Confirm that running the same strategy on many '
+                 'accounts is allowed. Never run this strategy with your own capital: without the prop payoff it loses money.', NOTE)]
+
+# ================================================================ 2. easy playbook
+S += [PageBreak(), p('2. The easy playbook', H1),
+      p('2.1 What to buy', H2),
+      table([['When', 'Lucid', 'FundedNext', 'MyFundedFutures'],
+             ['Day 1 (cost about $1,166)', '3 x 150K Flex ($265.30 each) + 2 x 25K Pro, loss limit OFF ($100 each)', '2 x 25K Pro ($85 each)', '-'],
+             ['When cash reaches $30,000', '-', 'add 3 x 150K Flex ($259.99 each)', 'add 3 x 150K ($334 each) + 2 x 25K ($98 each)'],
+             ['Always', 'Keep 5 slots full: when an account busts or closes, buy a new evaluation the next day', 'Same', 'Same']],
+            [1.45, 2.15, 1.55, 1.55]),
+      p('"Cash" means your starting $12,000 plus all payouts received minus all fees paid.', SM),
+      p('2.2 Daily routine (all times ET)', H2),
+      table([['Time', 'What to do'],
+             ['09:30', 'Note the opening price of ES (the first 1-minute bar\'s open).'],
+             ['10:00', '<b>Set the day\'s direction.</b> ES above the 09:30 open: everyone goes LONG today. Below: everyone goes SHORT. Equal: no trading. '
+                       'Then open the 150K one-trade positions and start the 25K "A" loops.'],
+             ['11:00', 'Start the 25K "B" loops.'],
+             ['15:30', 'No new 25K loop entries after this time.'],
+             ['15:59', 'Flatten everything that is still open, on every account.']], [0.7, 6.0]),
+      p('2.3 Account cards', H2),
+      p('<b>150K one-trade playbook.</b> At 10:00, buy (or sell) at market at max size in the day\'s direction. Place a <b>limit</b> take-profit X points away. '
+        '<b>No stop.</b> If the target fills, you are done for the day. If not, close at market at 15:59.', B),
+      table([['Firm, 150K account', 'Evaluation: size / target', 'Funded: size / target', 'Pass rate (model)', 'Avg paid per funded account'],
+             ['Lucid 150K Flex', '10 minis / +7 points', '10 minis / +3 points', '56%', 'about $4,930'],
+             ['FundedNext 150K Flex', '8 minis / +8 points', '8 minis / +3 points', '53%', 'about $5,770'],
+             ['MyFundedFutures 150K', '9 minis / +11 points', '9 minis / +4 points', '58% (min 2 days)', 'about $5,810 (33% get any payout)']],
+            [1.45, 1.4, 1.3, 1.05, 1.5], hl=[1, 2, 3]),
+      p('Why no stop: with end-of-day breach and a $4,000-4,500 drawdown, an intraday swing does not end the account. Only the close counts. '
+        'Bold play (max size, one shot) passes more often than any cautious sizing tested.', SM),
+      Spacer(1, 4),
+      p('<b>25K loop playbook</b> (Lucid 25K Pro, FundedNext 25K Pro, MFF 25K: two accounts each, called A and B). From the start time, enter at market in the day\'s direction '
+        'with a stop and a target. When the trade exits, re-enter on the next bar. Stop for the day once that day\'s closed profit reaches +6 points '
+        '(per contract), or after 8 trades.', B),
+      table([['Account', 'Evaluation: start / stop / target / day cap / size', 'Funded: start / stop / target / day cap / size', 'After first payout'],
+             ['A', '10:00 / 8 / 8 / +6 pts / 20 micros', '10:00 / 12 / 8 / +6 pts / 18 micros', 'Halve to 9 micros'],
+             ['B', '11:00 / 8 / 8 / +6 pts / 20 micros', '11:00 / 12 / 8 / +6 pts / 18 micros', 'Halve to 9 micros']],
+            [0.75, 2.3, 2.3, 1.35]),
+      p('2.4 Events', H2),
+      table([['Event', 'Action'],
+             ['Evaluation passes', 'Switch that account to its funded card the next day.'],
+             ['Account busts (closes at or below the floor)', 'Buy a new evaluation for that slot the next day (only if cash covers the fee).'],
+             ['Payout becomes allowed', 'Request it immediately, every time. Payouts refill cash and fund new evaluations.'],
+             ['Funded account hits its payout limit (Lucid and FN 150K: 5 payouts)', 'It closes. Buy a new evaluation for the slot.'],
+             ['Cash reaches $30,000', 'Buy the FundedNext 150Ks and the MFF 150Ks + 25Ks (section 2.1).']], [2.6, 4.1]),
+      p('2.5 Golden rules', H2),
+      *bullets(['Every account trades the <b>same direction</b>. Never hold opposite positions across accounts (all firms ban hedging).',
+                'Never use the no-stop 150K playbook on an account that liquidates <b>intraday</b>.',
+                'Stay inside each firm\'s max size and its news rules. Be flat by the firm\'s cutoff (for example, Lucid at 4:45pm).',
+                'Do not add accounts early, size up after wins, or skip the direction rule. Every such change was tested and made results worse.'])]
+
+# ================================================================ 3. results
+S += [PageBreak(), p('3. Expected results (final plan, real ES 2022-2026)', H1),
+      p('Each row shows medians of 10,000 simulated paths with a $12,000 start. "Spent" is evaluation fees paid. "Payouts" is cash received after the profit split. '
+        '"Net" is the change in cash. The 5th percentile is a bad 1-in-20 outcome.'),
+      table([['Slippage', 'Horizon', 'Spent', 'Payouts', 'Net (median)', 'Net, 5th pct', 'P(loss)', 'Evals bought'],
+             ['1 tick', '2 months', '$12,241', '$54,494', '<b>+$40,244</b>', '+$5,993', '2.0%', '71'],
+             ['1 tick', '6 months', '$44,966', '$349,355', '<b>+$303,369</b>', '+$129,785', '0.3%', '244'],
+             ['1 tick', '12 months', '$93,687', '$790,496', '<b>+$696,534</b>', '+$432,079', '0.3%', '503'],
+             ['3 ticks', '2 months', '$12,191', '$43,482', '+$29,041', '+$2,530', '3.5%', '74'],
+             ['3 ticks', '6 months', '$47,430', '$290,094', '+$241,482', '+$83,483', '0.8%', '266'],
+             ['3 ticks', '12 months', '$100,397', '$665,164', '+$563,604', '+$321,504', '0.7%', '555']],
+            [0.65, 0.8, 0.8, 0.9, 1.0, 0.95, 0.65, 0.95], hl=[1, 2, 3]),
+      p('Medians do not add exactly (median spent + median net differs from median payouts). Commissions are per firm (section 6.2). Taxes, platform and data fees are '
+        '<b>not</b> included. Reproduce with: python scripts/prop/run_final_plan.py (about 10 s).', SM),
+      p('3.1 How to read this', H2),
+      *bullets(['The first two months carry almost all the risk: cash is thin, and only Lucid and the FundedNext 25Ks are running. '
+                'Staging the FundedNext and MFF 150Ks until $30k keeps the 2-month loss chance at about 2-3.5%.',
+                'Spending roughly equals or exceeds the starting bankroll in the first 2 months. Payouts are recycled into new evaluations; '
+                'you never need more than the $12,000 at once in the model.',
+                'Slippage matters more than commissions. Real per-firm commissions cost about 2-3% of profit; going from 1 to 3 ticks costs about 20%.',
+                'Twelve-month figures assume the firms keep accepting about 500 evaluations and hundreds of payouts a year from one person. '
+                'That is the least certain assumption in the whole study.'])]
+
+# ================================================================ 4. why it works
+S += [p('4. Why it works', H1),
+      p('4.1 The convex payoff', H2),
+      p('An evaluation is an option: the downside is the fee ($85-$334), and the upside is a funded account paying thousands. With zero-edge trades, the pass '
+        'probability depends on the <b>shape</b> of the daily profit and loss relative to the target and the drawdown, not on prediction skill. Tests confirmed this: '
+        'a random-direction version passed evaluations about as often as the momentum version. '
+        'The 10:00 direction rule only helps in the funded phase.'),
+      p('4.2 Bold play on the 150Ks', H2),
+      p('For a fair game, the best way to reach a target before a floor is to bet big and as few times as possible ("bold play"). On a 150K with a $9,000 target, '
+        '10 minis x +7 points is $3,500 a day, so a pass needs about 3 good days, and the $4,500 end-of-day drawdown absorbs most losing days. '
+        'Cushion-based (timid) sizing was tested and passed less often. In the funded phase the target drops to +3/+4 points, '
+        'so payouts are collected before the account wanders down to the floor.'),
+      p('4.3 Why end-of-day breach is essential', H2),
+      p('With no stop, an open position can be thousands of dollars down at midday and still finish fine. If the firm liquidates at the intraday floor, those days become '
+        'busts. Modeled with intraday liquidation, the 150K one-trade playbook was about break-even (EV of -$55 to +$25 per attempt), so it was rejected for that case. '
+        'Lucid, FundedNext and MFF 150K were modeled as end-of-day breach. <b>Confirm this before trading.</b>'),
+      KeepTogether([p('4.4 Why the 25Ks still loop', H2),
+      p('The 25K accounts cap size at 2 minis and have a tiny $1,000 drawdown, so bold play is impossible. The loop with a small daily profit cap '
+        'creates many small winning days and passes the easy $1,250-$1,500 targets quickly. These accounts carry the early months while the 150Ks are being bought.')])]
+
+# ================================================================ 5. exact rules
+S += [p('5. Exact mechanical rules', H1),
+      p('<b>Instrument:</b> ES and MES futures (1 point = $50 per mini, $5 per micro). Regular session 09:30-16:00 ET. Times are 1-minute bar <b>end</b> times.'),
+      p('5.1 Direction (all accounts)', H2),
+      *bullets(['At the 10:00 bar close compare price with the 09:30 open (open of the first bar). Above: long only. Below: short only. Equal: no trading.']),
+      p('5.2 150K one-trade', H2),
+      *bullets(['Entry: market at the 10:00 bar close, in the day\'s direction, at the card size.',
+                'Exit: limit at entry +/- target points. No stop. If the target is not filled, exit at market at 15:59 (or 2 minutes before an early close).',
+                'At most one trade per day. Simulation fills: the target fills when a later bar\'s high (long) or low (short) reaches it.']),
+      p('5.3 25K loop ("Portfolio B" slots 1 and 2)', H2),
+      *bullets(['From the start time, enter at the bar close with stop S and target T. When a trade exits, re-enter on the next bar with the same S and T.',
+                'Stop for the day at +cap points closed (per contract, gross) or after 8 trades. No entries after 15:30. Flatten at 15:59.',
+                'If a bar touches both the stop and the target, the stop is assumed to fill first. If a bar opens beyond a level, the fill is at the open.',
+                'Funded size halves after the account\'s first payout (18 to 9 micros). This was the one tuning that raised profit and cut risk.']),
+      p('5.4 Account management', H2),
+      *bullets(['Up to 5 accounts per firm. Refill a slot the day after it busts or closes, if cash covers the fee. Request payouts the first day they are allowed.',
+                'FundedNext and MFF 150K, plus MFF 25K, start only when cash is at least $30,000. After that they are refilled like the others.'])]
+
+# ================================================================ 6. firm rules
+S += [p('6. Firm rules as modeled', H1),
+      p('"(A)" marks an <b>assumption</b> where the material provided did not state the rule. If any rule differs, edit scripts/prop/prop_sim.py and rerun.', NOTE),
+      p('6.1 150K accounts', H2),
+      table([['Rule', 'Lucid 150K Flex', 'FundedNext 150K Flex', 'MyFundedFutures 150K'],
+             ['Price', '$265.30', '$259.99', '$334'],
+             ['Target / drawdown', '$9,000 / $4,500 end-of-day trailing', '$8,000 / $4,000 end-of-day trailing', '$9,000 / $4,500 end-of-day trailing'],
+             ['Breach', 'End of day only', 'End of day only (A)', 'End of day only (A)'],
+             ['Eval consistency', '40%: target = max($9,000, best day / 0.4)', '40% (best day $3,200 at the base target)', '50%: target = max($9,000, best day / 0.5)'],
+             ['Min eval days', '-', '3', '2'],
+             ['Max size', '10 minis', '8 minis', '9 minis'],
+             ['Funded floor lock', 'Locks at +$100 once balance reaches $154,600, or at first payout', 'Locks at +$100 once up $4,100, or at first payout', 'Locks at +$100 after first payout'],
+             ['Payout conditions', '5 days of $250+ since last payout; cycle profit &gt; 0', '5 days of $250+; cycle profit at least $500', 'Every 10 funded trading days (about 14 calendar days) (A)'],
+             ['Payout amount', '50% of profit, cap $3,000, min $500', '50% of profit, cap $4,000', '60% of profit (A), min $1,000'],
+             ['Split / payout limit', '90% / closes after 5 payouts', '95% / closes after 5 payouts', '80% / no limit (A)']],
+            [1.25, 1.85, 1.8, 1.8]),
+      p('6.2 25K accounts', H2),
       table([['Rule', 'Lucid 25K Pro', 'FundedNext 25K Pro', 'MyFundedFutures 25K'],
-             ['Price', '$100 incl. tax (daily loss limit OFF)', '$85 (reset $84.99)', '$98 incl. tax'],
-             ['Eval target / drawdown', '$1,250 / $1,000 EOD trailing', '$1,500 / $1,000 EOD', '$1,500 / $1,000 EOD'],
-             ['Eval daily loss limit', 'Optional $600 (pauses). Use OFF.', 'None', 'None'],
-             ['Eval consistency', 'None', 'None', '30%: target = max($1,500, best day / 0.3) (A: target bump, not fail)'],
-             ['Min eval days', '-', '-', '4 trading days'],
-             ['Max size', '2 minis / 20 micros', '2 minis / 20 micros', '2 minis / 20 micros'],
-             ['Funded drawdown', '$1,000 EOD, locks at +$100 once up $1,100 (A)', '$1,000 EOD, locks at +$100 (A)', '$1,000 EOD, locks at +$100'],
-             ['Payout conditions', '>= $250 profit since last payout; best day <= 40% of cycle profit; $1,100 buffer not withdrawable; any day (A)',
-              'Every 3 trading days (A); best day <= 40% of cycle profit; cycle profit > 0', 'Daily; >= $250 net since last payout; $1,100 buffer'],
-             ['Payout amount', 'profit - $1,100, cap $1,000 (1st), $1,500 (later); min $500', '50% of profit (A), cap $800, min $250 (A)', 'profit - $1,100, no cap (A), min $500'],
-             ['Split', '90%', '90%', '90%'],
-             ['Account limit', '5 Lucid accounts total (Pro + Flex combined)', '5 (A)', '5 (A)'],
-             ['Other', 'Flat by 4:45pm; no hedging; micro-scalp rule', 'Max withdrawal $800', 'No tier-1 news trading when funded']], [1.35, 1.85, 1.75, 1.75]),
-      Spacer(1, 6),
-      p('4.1 Accounts tested and rejected (or weaker)', H2),
-      table([['Account', 'Key rules modeled', 'Result (real ES, 5 accounts, $12k, 1 tick)'],
-             ['Lucid 50K Flex ($150)', '$3,000 target, $2,000 EOD, 50% consistency read as $1,500/day cap; payouts 5 days of $150+, from $1,000 profit, 50% capped $2,000; '
-              'floor +$100 after 1st payout; $8k live review ($900 cashout)', 'Works: 12-mo median about +$84-94k but 2-mo loss chance about 18% (vs 5% for 25K Pro)'],
-             ['Lucid 25K Pro, loss limit ON ($84)', '$600 daily loss limit pauses trading; on-demand payouts', 'Loses: 12-mo median +$7.7k, 24% chance of loss. The limit stops the loop\'s recovery trades.'],
-             ['Lucid 150K Flex ($250-450, A)', '$9,000 target, $4,500 EOD, 40% consistency ($3,600/day), 10 minis', 'Worse than 50K: harder target/drawdown ratio; high loss risk unless fee about $250 and bankroll $24k'],
-             ['Apex 50K EOD (fee A $150)', '$1,000 daily loss limit; payout needs $2,600+ (safety net), 50% consistency, $200 days, 6-payout cap', 'Loses at every size tested; positive only with deep fee discounts'],
-             ['FundedNext 50K Flex ($140, reset $85)', '$2,500 target, $1,500 EOD, 40% rule bumps target; payouts 5 days $200+, 50% cap $1,500, 5-payout cap, 95% split',
-              'Works (12-mo about +$55k alone); weaker than FN 25K Pro as a partner when started on day 1'],
-             ['Tradeify 25K v1 ($59)', 'Always-on $600 loss limit, 1 mini, 35% funded consistency', 'Loses'],
-             ['Tradeify 25K v2 ($76)', 'No eval loss limit, 1 mini; Daily path ($600 cap, $500 limit)', 'Weak (+$17k/yr alone). Adds about +$11k/yr as a 4th firm - excluded by choice']], [1.5, 3.0, 2.2])]
-# ---------------------------------------------------------------- methodology
-S += [PageBreak(), p('5. Method (how the numbers were produced)', H1),
-      p('5.1 Data', H2),
-      *bullets(['<b>Real ES:</b> data/ES_1m_RTH/ES_1m_RTH_2022-2026.csv.gz - continuous front-month ES (open-interest roll, raw prices on the 0.25 grid), '
-                '1-minute bars 09:31-16:00 ET (bar end time), Jan 2022 - Nov 2026, 1,249 days. Downloaded from QuantConnect with ES_download.ipynb.',
-                '<b>Synthetic ES:</b> scripts/synth_es.py - Merton jump-diffusion + GARCH(1,1) volatility clustering + 3-state Markov regimes (calm/normal/crisis), '
-                'U-shaped intraday volatility and volume taken from real ES, bid/ask bounce, 0.25 tick rounding. Calibrated to real ES daily volatility (1.07%), overnight gaps, '
-                'clustering and drift. Each seed is an independent 10-year market; used for (a) choosing sizes without touching real data and (b) multi-market tests.',
-                'Earlier phases used SPY 1-minute data x10 as an ES proxy (SPY_1m_Cleaned Parquet.parquet); real-ES results later matched those closely.']),
-      p('5.2 Trade tape', H2),
-      p('scripts/prop/build_tape.py simulates all 10 presets bar-by-bar for every day and records, per preset and day: points per 1 contract before costs, '
-        'number of trades, and the worst intraday point (needed for daily-loss-limit rules). The QuantConnect version of the same logic (LoopTape algorithm) matched this '
-        'tape exactly on 19 of 25 sampled days and within a few ticks on the rest.'),
-      p('5.3 Costs', H2),
-      p('Per contract per trade: $3.50 commission round trip (E-mini) + slippage of 1 or 3 ticks x $12.50. Day $ = size x (50 x points - trades x cost). '
-        'Costs scale with contract count (micros modeled as fractional minis).'),
-      p('5.4 Monte Carlo of the prop business', H2),
-      *bullets(['Each simulated path draws trading days at random (with replacement) from the tape; <b>all accounts in a path trade the same drawn day</b>, so correlation between accounts is preserved.',
-                '10,000 paths, horizons 1, 2, 6, 12 months (21/42/126/252 trading days), shared cash bankroll starting at $12,000.',
-                'Every rule in section 4 is applied each day: fees and resets, end-of-day trailing drawdown and locks, targets, consistency rules, minimum days, payout conditions, '
-                'caps, buffers, splits, payout-count limits, live-review closures, and firm start triggers.',
-                'Reported: <b>median</b>, <b>5th percentile</b> (bad 1-in-20 outcome) and <b>chance of a net loss</b> of cash at each horizon.']),
-      p('5.5 Avoiding overfitting', H2),
-      *bullets(['Strategy shapes were first selected on SPY 2018-2022 and checked on 2023-2025; sizes for each new firm were selected on <b>synthetic</b> data and only then run on real ES.',
-                'Several searches (1,500 random portfolios; filters; entry/exit models) were checked out of sample and rejected when the improvement did not hold.',
-                'Remaining weaknesses: real ES 2022-2026 is a single, mostly rising period; synthetic data has thinner tails than real data; firm rules are partly assumed.'])]
-# ---------------------------------------------------------------- results
-S += [PageBreak(), p('6. Results', H1),
-      p('6.1 Final plans, real ES 2022-2026 (cells: median / 5th percentile / chance of loss)', H2),
-      table([['Slippage', 'Plan', '1 month', '2 months', '6 months', '12 months'],
-             ['1 tick', 'A: Lucid Pro + FN Pro day 1, add MFF at $30k', '+5,915 / -4,685 / 21.9%', '+16,836 / -1,099 / 6.3%', '+77,978 / +25,468 / 0.2%', '+175,875 / +97,882 / 0.2%'],
-             ['1 tick', 'B: Lucid Pro day 1, add FN Pro + MFF at $30k', '+3,736 / -2,429 / 20.0%', '+10,868 / -29 / 5.1%', '+59,296 / +15,221 / 0.1%', '+157,475 / +80,815 / 0.0%'],
-             ['1 tick', 'C: all three from day 1', '+7,594 / -7,436 / 25.3%', '+24,288 / -3,593 / 8.4%', '+89,425 / +29,819 / 1.8%', '+186,956 / +100,499 / 1.7%'],
-             ['3 ticks', 'A', '+2,934 / -5,925 / 33.6%', '+10,607 / -5,117 / 15.3%', '+46,561 / +7,737 / 2.1%', '+110,847 / +40,672 / 1.2%'],
-             ['3 ticks', 'B', '+2,058 / -3,100 / 30.1%', '+6,875 / -2,296 / 12.4%', '+28,926 / +7,263 / 0.8%', '+93,843 / +29,498 / 0.1%'],
-             ['3 ticks', 'C', '+3,052 / -9,154 / 37.8%', '+13,841 / -10,257 / 19.1%', '+55,948 / -11,930 / 6.6%', '+119,364 / -11,932 / 5.9%']],
-            [0.55, 2.0, 1.05, 1.05, 1.05, 1.1], hl=[1, 5]),
-      p('Highlighted rows = recommended plan for that slippage level. Reproduce with: python scripts/prop/run_final_plan.py', SM),
-      p('6.2 Single firms, real ES (5 accounts, $12k start)', H2),
-      table([['Account (fee)', '1 tick: 2 mo', '1 tick: 6 mo', '1 tick: 12 mo', '3 ticks: 2 mo', '3 ticks: 12 mo'],
-             ['Lucid 25K Pro ($100)', '+10,872 / 5.1%', '+39,065 / 0.0%', '+81,462 / 0.0%', '+6,875 / 12.4%', '+55,631 / 0.0%'],
-             ['FundedNext 25K Pro ($85)', '+6,555 / 8.6%', '+23,050 / 0.2%', '+47,262 / 0.0%', '+3,715 / 20.2%', '+31,992 / 0.3%'],
-             ['MyFundedFutures 25K ($98)', '+6,818 / 15.4%', '+27,383 / 1.2%', '+58,552 / 0.1%', '+3,115 / 30.0%', '+33,110 / 1.6%'],
-             ['Lucid 50K Flex ($150)', '+10,132 / 17.9%', '+43,986 / 1.6%', '+93,582 / 0.6%', '+4,775 / 31.1%', '+57,137 / 4.0%']],
-            [1.8, 1.0, 1.0, 1.05, 1.0, 1.0]),
-      p('Cells: median / chance of loss.', SM),
-      p('6.3 Spreading accounts across independent markets (synthetic, upper bound; Plan C = all three firms from day 1)', H2),
-      table([['Slippage', 'Markets', '1 month', '2 months', '6 months', '12 months'],
-             ['1 tick', '1', '+10,916 / -5,356 / 16.2%', '+30,648 / +2,276 / 3.4%', '+107,551 / +52,279 / 0.4%', '+221,970 / +142,448 / 0.4%'],
-             ['1 tick', '5', '+9,530 / -2,003 / 9.2%', '+26,291 / +7,537 / 0.9%', '+92,679 / +58,049 / 0.0%', '+191,753 / +141,822 / 0.0%'],
-             ['1 tick', '10', '+9,829 / +722 / 3.4%', '+26,799 / +11,718 / 0.1%', '+93,674 / +65,594 / 0.0%', '+193,286 / +152,530 / 0.0%'],
-             ['3 ticks', '1', '+5,683 / -7,704 / 28.5%', '+18,671 / -5,209 / 10.8%', '+70,359 / +19,562 / 2.2%', '+147,500 / +72,359 / 2.0%'],
-             ['3 ticks', '10', '+5,001 / -2,677 / 15.8%', '+15,933 / +2,979 / 1.8%', '+59,270 / +34,723 / 0.0%', '+124,160 / +88,480 / 0.0%']],
-            [0.6, 0.6, 1.3, 1.3, 1.35, 1.4]),
-      p('Synthetic markets are perfectly independent, so this overstates the benefit. Lucid lists about 5-6 roughly independent groups (stock indexes, crude, nat gas, '
-        'gold/silver, platinum, copper). The loop must be re-scaled to each market\'s volatility and session before use. Reproduce: run_final_plan.py --multimarket', SM),
-      p('6.4 What helped and what did not', H2),
-      table([['Helped', 'Did not help (tested, rejected)'],
-             ['Loop (re-enter after exit, small daily profit cap) instead of one trade per day: about 3x more money',
-              'Day filters (VIX, overnight gap, opening-range size), fewer accounts, slower evaluation buying, spending stop-loss'],
-             ['Halving funded size after the first payout: +10-13% profit, lower risk',
-              'Other entries/exits: pullback, breakout, trailing stop, breakeven stop, time exits; VWAP-fade and gap-fill signals'],
-             ['25K accounts with easy target/drawdown ratio (1.25-1.5) and no daily loss limit',
-              'Brute-force search of 1,500 structure mixes (did not hold out of sample); martingale; sizing up after profit'],
-             ['Adding firms only after cash reaches about $30k (more money, same early risk)',
-              'Daily loss limits (any firm): cut the loop\'s recovery trades'],
-             ['Different start times / stop-target shapes per account (diversification within ES)', 'Delaying the first payout; changing base sizes away from Portfolio B'],
-             ['Independent markets per account (synthetic): early risk cut by 3-10x', 'Same-direction "day-locked" variants could not reach 1-3% risk at 2 months on one market']],
-            [3.35, 3.35])]
-# ---------------------------------------------------------------- plan + caveats
-S += [PageBreak(), p('7. Operating checklist', H1),
-      *bullets(['<b>1.</b> Paper-trade the loop on a free simulated account for 2+ weeks; measure real slippage on stop exits (ticks per trade). Choose Plan A (about 1 tick) or Plan B (2-3 ticks).',
-                '<b>2.</b> Confirm every "(A)" rule in section 4 with each firm, plus account limits and whether running the same strategy on many accounts is allowed.',
-                '<b>3.</b> Start: 5 x Lucid 25K Pro with the daily loss limit OFF (and 5 x FundedNext 25K Pro on day 1 for Plan A). Sizes per section 3.4.',
-                '<b>4.</b> Each day: set direction at 10:00 ET; run each account\'s preset; flat by 15:59; no opposite positions anywhere.',
-                '<b>5.</b> Request payouts as soon as allowed; halve that account\'s funded size after its first payout; rebuy busted slots the next day.',
-                '<b>6.</b> When cash reaches $30,000 add the next firm(s). Track results against the medians in section 6; if live results fall well below the 5th percentile, stop and re-measure costs.',
-                '<b>7.</b> Next research step: real CL, GC, SI, HG, NG 1-minute data (multi_market_download.ipynb, split by year) to test cross-market diversification.'])]
-S += [p('8. Risks and limitations', H1),
-      *bullets(['<b>No edge:</b> profit depends entirely on firm rules. Rule changes, fee changes, payout denials or bans for "farming" behaviour would remove it.',
-                '<b>Correlation:</b> 15 accounts on one strategy, one direction, one market lose together on bad days. Multi-market spreading helps only if real correlations are low.',
-                '<b>Slippage:</b> 3 ticks roughly halves profit and triples early loss risk versus 1 tick. Stop orders in fast markets can be worse.',
-                '<b>Data:</b> real ES covers 2022-2026 only; bootstrap draws days independently (ignores multi-day streaks beyond the data\'s own clustering).',
-                '<b>Model simplifications:</b> instant payouts and rebuys; no platform/data fees; fractional mini sizes via micros; payout timing rules partly assumed.',
-                '<b>Normal account:</b> the same strategy loses money with real capital (QuantConnect backtest with $100k lost most of it). Never trade it with your own capital.'])]
-# ---------------------------------------------------------------- replication
-S += [PageBreak(), p('9. Replication guide', H1),
-      p('9.1 Files in the repository', H2),
+             ['Price', '$100 (daily loss limit OFF)', '$85', '$98'],
+             ['Target / drawdown', '$1,250 / $1,000 end-of-day', '$1,500 / $1,000 end-of-day', '$1,500 / $1,000 end-of-day'],
+             ['Eval consistency / min days', 'None', 'None', '30% (target bump) / 4 days'],
+             ['Funded floor', 'Locks at +$100', 'Locks at +$100 (A)', 'Locks at +$100'],
+             ['Payout conditions', '$250+ since last payout; best day at most 40% of cycle; $1,100 buffer', 'Every 3 trading days (A); best day at most 40%', 'Daily; $250+ net; $1,100 buffer'],
+             ['Payout amount', 'Profit - $1,100, cap $1,000 first, $1,500 later; min $500', '50% of profit (A), cap $800, min $250', 'Profit - $1,100, min $500'],
+             ['Split', '90%', '90%', '90%']],
+            [1.25, 1.85, 1.8, 1.8]),
+      p('6.3 Commissions (round trip, per contract)', H2),
+      table([['Firm', 'ES mini', 'MES micro', 'Source'],
+             ['Lucid', '$3.50', '$1.00', '$1.75 / $0.50 per side (user-provided)'],
+             ['FundedNext', '$5.76', '$1.74 (A)', '$2.88 per side (user-provided)'],
+             ['MyFundedFutures', '$4.68', '$1.74', 'User-provided'],
+             ['Slippage (all)', '1 or 3 ticks x $12.50 per mini-equivalent per trade', '', 'Model input']], [1.4, 1.5, 1.2, 2.6])]
+
+# ================================================================ 7. rejected
+S += [PageBreak(), p('7. What was tested and rejected', H1),
+      table([['Option', 'Why it was rejected'],
+             ['150K one-trade with <b>intraday</b> liquidation', 'Roughly break-even (EV of -$55 to +$25 per attempt). Midday swings bust accounts that would recover by the close.'],
+             ['Cushion / timid sizing on the 150Ks', 'Lower pass rate than bold play at max size.'],
+             ['Lucid 25K Pro with the daily loss limit ON ($84)', 'Loses: the $600 pause cuts the loop\'s recovery trades (12-month median about +$7.7k, 24% loss chance).'],
+             ['Lucid 50K Flex ($150)', 'Works, but the 2-month loss chance is about 18%. Replaced by the 150K Flex.'],
+             ['FundedNext 50K Flex ($140)', 'Works alone (about +$55k a year), but is weaker than the FN 25K Pro + 150K pair.'],
+             ['Apex 50K', '$1,000 daily loss limit, safety-net payouts and a 50% consistency rule: lost money at every size tested.'],
+             ['Tradeify (all accounts)', 'Excluded by choice. The 25K v1 lost money; the v2 was weak.'],
+             ['Filters, other entries and exits, brute-force mixes', 'VIX, gap and opening-range filters; pullback, breakout, trailing and breakeven exits; 1,500 random portfolios. '
+                                                                 'Improvements did not hold out of sample.'],
+             ['Adding all firms on day 1', 'More money at 12 months, but a 2-month loss chance of 8-19%. Staging at $30k is the better trade-off.']], [2.4, 4.3]),
+      p('8. How the plan evolved', H1),
+      p('Before the 150K accounts, the best plan used only 25K accounts (5 per firm, all on the loop). Results on real ES, at Lucid-style $3.50 commissions:'),
+      table([['Slippage', 'All-25K plan', '2 months', '6 months', '12 months'],
+             ['1 tick', 'A: Lucid Pro + FN Pro day 1, MFF at $30k', '+16,836 / -1,099 / 6.3%', '+77,978 / +25,468 / 0.2%', '+175,875 / +97,882 / 0.2%'],
+             ['1 tick', 'B: Lucid Pro day 1, FN Pro + MFF at $30k', '+10,868 / -29 / 5.1%', '+59,296 / +15,221 / 0.1%', '+157,475 / +80,815 / 0.0%'],
+             ['3 ticks', 'A', '+10,607 / -5,117 / 15.3%', '+46,561 / +7,737 / 2.1%', '+110,847 / +40,672 / 1.2%'],
+             ['3 ticks', 'B', '+6,875 / -2,296 / 12.4%', '+28,926 / +7,263 / 0.8%', '+93,843 / +29,498 / 0.1%']],
+            [0.7, 2.2, 1.25, 1.25, 1.3]),
+      p('Cells: median net / 5th percentile / chance of loss. Reproduce with python scripts/prop/run_25k_plans.py. '
+        'Adding the end-of-day 150K accounts with the one-trade playbook raised the 12-month median about 4x (+$176k to +$697k) and cut the 2-month loss chance from 6.3% to 2.0%.', SM),
+      p('8.1 Multiple markets (synthetic test, still open)', H2),
+      p('Running accounts on independent synthetic markets cut early risk 3-10x (for example, the 1-month loss chance fell from 16% to 3% with 10 markets). '
+        'Synthetic markets are perfectly independent, so this is an upper bound. The real test needs CL, GC, SI, HG and NG 1-minute data '
+        '(multi_market_download.ipynb, split by year), with the playbooks rescaled to each market\'s volatility. Reproduce: run_25k_plans.py --multimarket.')]
+
+# ================================================================ 9. method
+S += [PageBreak(), p('9. Method', H1),
+      *bullets(['<b>Data:</b> continuous front-month ES 1-minute RTH bars, Jan 2022 - Nov 2026 (data/ES_1m_RTH/ES_1m_RTH_2022-2026.csv.gz, from QuantConnect via '
+                'ES_download.ipynb). Full days only (first bar 09:31, at least 300 bars): 1,199 days.',
+                '<b>Tapes:</b> build_tape.py records each 25K preset\'s daily points and trade count. build_shapes.py does the same for the five 150K one-trade shapes. '
+                'Day $ = 50 x size x points - trades x (commission + size x ticks x $12.50).',
+                '<b>Monte Carlo:</b> 10,000 paths at seed 3. Each path draws trading days at random from the tape, and <b>all accounts trade the same drawn day</b>, '
+                'so cross-account correlation is kept. The shared bankroll starts at $12,000. Horizons are 42, 126 and 252 trading days.',
+                '<b>Every rule in section 6 is applied daily:</b> fees, end-of-day trailing floors and locks, consistency as a target bump, minimum days, payout '
+                'conditions, caps, splits, payout limits and the $30k start trigger.',
+                '<b>Anti-overfitting:</b> playbooks were selected on synthetic ES (seeds 1-3, scripts/synth_es.py: jump-diffusion + GARCH + regimes) or on older data, '
+                'then judged on real ES. Searches that did not hold out of sample were dropped.',
+                '<b>Known weaknesses:</b> 2022-2026 is a single, mostly rising period; the bootstrap ignores multi-day streaks; payouts and rebuys are instant; '
+                'some firm rules are assumed (A).'])]
+S += [p('10. Risks', H1),
+      *bullets(['<b>Rules and enforcement:</b> the whole profit depends on the firms. Rule changes, payout reviews, or bans for running the same strategy across many accounts would end it.',
+                '<b>Scale:</b> about 500 evaluations and hundreds of payouts a year may draw scrutiny. The 6- and 12-month numbers assume nothing changes.',
+                '<b>No-stop exposure:</b> a 150K position at 10 minis can lose $5,000+ on a crash day. The firm absorbs it in the model, but a gap past the floor may still count.',
+                '<b>Correlation:</b> all accounts trade one direction in one market, so bad days hit everything at once.',
+                '<b>Slippage:</b> 3 ticks costs about 20% of profit. Measure it on a simulated account before going live.',
+                '<b>Taxes and fees:</b> income tax on payouts, platform and data fees, and activation fees are not modeled.'])]
+
+# ================================================================ 11. replication
+S += [PageBreak(), p('11. Replication guide', H1),
       table([['Path', 'What it is'],
              ['data/ES_1m_RTH/ES_1m_RTH_2022-2026.csv.gz', 'Real ES 1-minute RTH bars (input)'],
-             ['data/tapes/ES_tape_2022-2026.csv', 'Daily trade tape for the 10 presets (built from the bars)'],
-             ['scripts/prop/presets.py', 'Preset definitions (section 3.3)'],
-             ['scripts/prop/build_tape.py', 'Bars -> daily tape (section 5.2)'],
-             ['scripts/prop/prop_sim.py', 'Monte Carlo of all firms and rules (section 4/5.4); edit FEE and rule constants here'],
-             ['scripts/prop/run_final_plan.py', 'Reproduces tables 6.1 (and 6.3 with --multimarket)'],
-             ['scripts/synth_es.py', 'Synthetic ES generator (jump-diffusion + GARCH + regimes)'],
-             ['data/synthetic/ES_synth_1m_10y_seed1.csv.gz', 'Example synthetic 10-year market'],
-             ['ES_download.ipynb, multi_market_download.ipynb', 'QuantConnect Research notebooks to download 1-minute futures data'],
-             ['docs/make_prop_pdf.py', 'Regenerates this PDF']], [3.0, 3.7]),
-      p('9.2 Commands', H2),
+             ['data/tapes/ES_tape_2022-2026.csv', '25K loop tape (built automatically if missing)'],
+             ['data/tapes/ES_shapes_2022-2026.pkl', '150K one-trade shape tape (built automatically if missing)'],
+             ['scripts/prop/presets.py, build_tape.py', '25K loop presets and the tape builder'],
+             ['scripts/prop/build_shapes.py', '150K one-trade shapes (targets 7, 8, 11, 3, 4 points)'],
+             ['scripts/prop/prop_sim.py', 'Monte Carlo of all firms (kinds l150, pro, fn150, fnpro, mff150, mff). Fees and rules live here.'],
+             ['scripts/prop/run_final_plan.py', 'Final plan: section 3 table, with per-firm commissions'],
+             ['scripts/prop/run_25k_plans.py', 'Earlier all-25K plans (section 8); --multimarket for the synthetic test'],
+             ['scripts/synth_es.py', 'Synthetic ES generator'],
+             ['docs/make_prop_pdf.py', 'Regenerates this PDF']], [2.9, 3.8]),
+      Spacer(1, 6),
       Preformatted('git clone https://github.com/EnderWiggin2027/Quantconnect-Data && cd Quantconnect-Data\n'
                    'git checkout claude/festive-dirac-jgT5l\n'
-                   'pip install numpy pandas pyarrow reportlab\n'
-                   'python scripts/prop/run_final_plan.py                 # table 6.1 (about 20 s)\n'
-                   'python scripts/prop/run_final_plan.py --multimarket   # + table 6.3 (generates 10 synthetic markets, about 15 min)\n'
-                   'python scripts/prop/build_tape.py <bars.csv.gz> <tape.csv>   # tape for any other market file', CODE),
-      p('9.3 Prompt to give an AI assistant', H2),
+                   'pip install numpy pandas reportlab\n'
+                   'python scripts/prop/run_final_plan.py          # final plan, section 3 (about 10 s)\n'
+                   'python scripts/prop/run_25k_plans.py           # earlier 25K plans, section 8 (about 20 s)\n'
+                   'python docs/make_prop_pdf.py                   # rebuild this PDF', CODE),
+      p('11.1 Prompt to give an AI assistant', H2),
       Preformatted(
-        'I have a repository (EnderWiggin2027/Quantconnect-Data, branch claude/festive-dirac-jgT5l) containing a prop-firm\n'
-        'strategy study. Read docs/prop_firm_strategy.pdf and the code in scripts/prop/.\n'
-        '1. Install numpy, pandas, pyarrow. Run python scripts/prop/run_final_plan.py and confirm the medians match\n'
-        '   table 6.1 of the PDF within a few hundred dollars.\n'
-        '2. Strategy: at 10:00 ET set the day direction (price vs 09:30 open); every account trades only that direction;\n'
-        '   each account loops stop/target trades from its start time until +cap points or 8 trades (presets.py).\n'
-        '3. Firm rules are encoded in prop_sim.py (function sim, kinds pro / fnpro / mff). Sizes are in accounts().\n'
-        '4. To test a new firm: add a new kind with its fee, target, drawdown, lock, consistency, payout rules, caps\n'
-        '   and split; choose sizes on synthetic data (scripts/synth_es.py) first; then run on the real ES tape.\n'
-        '5. Report median, 5th percentile and P(loss) at 1, 2, 6 and 12 months, at 1 and 3 ticks of slippage.\n'
-        'Keep the same anti-overfitting protocol: select on synthetic or older data, judge on data not used for selection.', CODE),
-      p('9.4 Key parameters at a glance', H2),
-      Preformatted('Costs per contract per trade: commission $3.50 + ticks x $12.50 (ES tick = 0.25 pt = $12.50)\n'
-                   'Monte Carlo: 10,000 paths, rng seed 3, bankroll $12,000, horizons 21/42/126/252 trading days\n'
-                   'Fees: Lucid 25K Pro $100 | FundedNext 25K Pro $85 | MFF 25K $98 | Lucid 50K Flex $150 | FN 50K Flex $140 (+$85 reset)\n'
-                   'Post-first-payout size multiplier: 0.5 | Firm start trigger: cash >= $30,000 (MFF in Plan A; FN Pro + MFF in Plan B)', CODE)]
+        'Repository EnderWiggin2027/Quantconnect-Data, branch claude/festive-dirac-jgT5l, contains a prop-firm study.\n'
+        'Read docs/prop_firm_strategy.pdf and scripts/prop/.\n'
+        '1. Run python scripts/prop/run_final_plan.py and confirm the medians match section 3 of the PDF.\n'
+        '2. Direction: 10:00 ET close vs 09:30 open; all accounts trade that direction only.\n'
+        '   150K accounts: one market entry at 10:00, limit target, no stop, exit 15:59 (build_shapes.py).\n'
+        '   25K accounts: stop/target loop with a daily profit cap (presets.py, build_tape.py).\n'
+        '3. Firm rules are in prop_sim.py (function sim). Sizes and commissions are in run_final_plan.py.\n'
+        '4. To test a new firm, add a kind with its fee, target, drawdown, lock, consistency, payout rules, caps\n'
+        '   and split. Choose sizes on synthetic data first (scripts/synth_es.py), then run on real ES.\n'
+        '5. Report median, 5th percentile and P(loss) at 2, 6 and 12 months, at 1 and 3 ticks, plus fees spent\n'
+        '   and payouts received.', CODE),
+      p('11.2 Key parameters', H2),
+      Preformatted('Monte Carlo: 10,000 paths, seed 3, bankroll $12,000, horizons 42/126/252 trading days\n'
+                   'Fees: Lucid 150K $265.30, 25K Pro $100 | FN 150K $259.99, 25K Pro $85\n'
+                   '      MFF 150K $334, 25K $98\n'
+                   'Start trigger: FN 150K, MFF 150K and MFF 25K at cash >= $30,000\n'
+                   '25K funded size: 1.8 minis, halved to 0.9 after the first payout. 150K funded size = eval size', CODE)]
 
 SimpleDocTemplate(OUT, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch, topMargin=0.6 * inch, bottomMargin=0.7 * inch,
-                  title='Prop-firm loop strategy', author='Research notes').build(S, onFirstPage=footer, onLaterPages=footer)
+                  title='Prop-firm strategy', author='Research notes').build(S, onFirstPage=footer, onLaterPages=footer)
 print('wrote', OUT)
